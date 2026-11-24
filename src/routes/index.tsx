@@ -45,7 +45,7 @@ function ControlPage() {
   const device = useDevice(deviceId)
   const { status, lastUpdated } = useMqttTelemetry(deviceId)
   const livePump = usePumpLive(deviceId)
-  const { pendingCommand, send } = usePumpControl(deviceId)
+  const { send } = usePumpControl(deviceId)
   const queryClient = useQueryClient()
   const [signingOut, setSigningOut] = useState(false)
 
@@ -134,17 +134,15 @@ function ControlPage() {
                 <div>
                   <p className="section-kicker">Kontrol pompa</p>
                   <h1 id="pump-title" className="pump-state">
-                    {pendingCommand ? `Mengirim ${pendingCommand}` : pumpStatus === 'ON' ? 'Pompa menyala' : 'Pompa mati'}
+                    {pumpStatus === 'ON' ? 'Pompa menyala' : 'Pompa mati'}
                   </h1>
                   <p className="pump-meta">
-                    {pendingCommand
-                      ? 'Menunggu konfirmasi perangkat.'
-                      : pumpMode === 'auto'
-                        ? `Mode otomatis · ambang ${threshold}%`
-                        : 'Mode manual · kamu yang menentukan.'}
+                    {pumpMode === 'auto'
+                      ? `Mode otomatis · ambang ${threshold}%`
+                      : 'Mode manual · kamu yang menentukan.'}
                   </p>
                 </div>
-                <div className={`pump-orb ${pumpStatus === 'ON' || pendingCommand === 'ON' ? 'is-on' : ''}`} aria-hidden="true">
+                <div className={`pump-orb ${pumpStatus === 'ON' ? 'is-on' : ''}`} aria-hidden="true">
                   <Power size={28} strokeWidth={2.4} />
                 </div>
               </div>
@@ -152,7 +150,6 @@ function ControlPage() {
               <PumpAction
                 pumpStatus={pumpStatus}
                 pumpMode={pumpMode}
-                pendingCommand={pendingCommand}
                 onSend={send}
               />
 
@@ -222,11 +219,10 @@ function SensorPill({ icon, label, value, unit, tone, loading }: { icon: React.R
   )
 }
 
-function PumpAction({ pumpStatus, pumpMode, pendingCommand, onSend }: { pumpStatus: PumpCommand; pumpMode: PumpMode; pendingCommand: PumpCommand | null; onSend: (cmd: PumpCommand) => void }) {
+function PumpAction({ pumpStatus, pumpMode, onSend }: { pumpStatus: PumpCommand; pumpMode: PumpMode; onSend: (cmd: PumpCommand) => void }) {
   const [confirming, setConfirming] = useState<PumpCommand | null>(null)
-  const pending = pendingCommand !== null
   const auto = pumpMode === 'auto'
-  const isOn = (pendingCommand ?? pumpStatus) === 'ON'
+  const isOn = pumpStatus === 'ON'
   const next: PumpCommand = pumpStatus === 'ON' ? 'OFF' : 'ON'
 
   return (
@@ -234,14 +230,14 @@ function PumpAction({ pumpStatus, pumpMode, pendingCommand, onSend }: { pumpStat
       <button
         type="button"
         className={`pump-action ${isOn ? 'is-on' : 'is-off'}`}
-        disabled={pending || auto}
-        onClick={() => !pending && !auto && setConfirming(next)}
+        disabled={auto}
+        onClick={() => !auto && setConfirming(next)}
         aria-label={pumpStatus === 'ON' ? 'Matikan pompa' : 'Nyalakan pompa'}
       >
         <span className="pump-action-icon" aria-hidden="true"><Power size={24} strokeWidth={2.5} /></span>
         <span className="pump-action-text">
           <span className="pump-action-title">
-            {pending ? 'Menunggu konfirmasi…' : auto ? 'Dikendalikan otomatis' : pumpStatus === 'ON' ? 'Matikan pompa' : 'Nyalakan pompa'}
+            {auto ? 'Dikendalikan otomatis' : pumpStatus === 'ON' ? 'Matikan pompa' : 'Nyalakan pompa'}
           </span>
           <span className="pump-action-desc">
             {auto ? 'Ubah ke Manual untuk kontrol langsung' : pumpStatus === 'ON' ? 'Hentikan penyiraman sekarang' : 'Kirim perintah siram ke perangkat'}
@@ -253,7 +249,7 @@ function PumpAction({ pumpStatus, pumpMode, pendingCommand, onSend }: { pumpStat
         <div className="dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={(e) => e.target === e.currentTarget && setConfirming(null)}>
           <div className="dialog-card">
             <h2 id="confirm-title" className="dialog-title">{confirming === 'ON' ? 'Nyalakan pompa?' : 'Matikan pompa?'}</h2>
-            <p className="dialog-desc">Perintah dikirim ke perangkat. Status berubah setelah perangkat mengonfirmasi, atau gagal setelah 10 detik.</p>
+            <p className="dialog-desc">Perintah dikirim ke perangkat lewat server. Status pompa langsung diperbarui di dashboard.</p>
             <div className="dialog-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setConfirming(null)}>Batal</button>
               <button type="button" className="btn btn-primary" onClick={() => { onSend(confirming); setConfirming(null) }}>Kirim perintah</button>
