@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import type { DeviceDetail, Envelope } from '../lib/api'
+import { publishTelemetry } from '../lib/liveTelemetry'
 import { connectMqtt } from '../lib/mqtt'
 import type { MqttStatus } from '../lib/mqtt'
 import { publishPumpStatus } from '../lib/pumpLive'
@@ -26,6 +27,15 @@ export function useMqttTelemetry(deviceId: string) {
         switch (message.type) {
           case 'telemetry': {
             const recordedAt = new Date(message.ts * 1000).toISOString()
+            // Store live lebih dulu: refetch REST berikutnya tidak boleh
+            // mengembalikan nilai lama ke layar.
+            publishTelemetry(deviceId, {
+              soil_moisture: message.soil_moisture,
+              temperature: message.temperature,
+              humidity: message.humidity,
+              recorded_at: recordedAt,
+              ts: message.ts,
+            })
             queryClient.setQueryData<Envelope<DeviceDetail>>(
               ['device', deviceId],
               (prev) =>

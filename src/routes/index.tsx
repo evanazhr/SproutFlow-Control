@@ -7,6 +7,7 @@ import { useForm } from '@tanstack/react-form'
 import ConnectionBadge from '../components/ConnectionBadge'
 import { useAuth } from '../hooks/useAuth'
 import { useDevice } from '../hooks/useDevice'
+import { clearLiveTelemetry, useLiveTelemetry } from '../lib/liveTelemetry'
 import { useMqttTelemetry } from '../hooks/useMqttTelemetry'
 import { usePumpControl } from '../hooks/usePumpControl'
 import { ApiError, api } from '../lib/api'
@@ -44,6 +45,7 @@ function ControlPage() {
   const { user } = useAuth()
   const device = useDevice(deviceId)
   const { status, lastUpdated } = useMqttTelemetry(deviceId)
+  const liveTelemetry = useLiveTelemetry(deviceId)
   const livePump = usePumpLive(deviceId)
   const { send } = usePumpControl(deviceId)
   const queryClient = useQueryClient()
@@ -86,13 +88,15 @@ function ControlPage() {
     finally {
       disconnectMqtt()
       clearPumpLiveState(deviceId)
+      clearLiveTelemetry(deviceId)
       queryClient.clear()
       window.location.href = '/login'
     }
   }
 
   const data = device.data
-  const latest = data?.latest ?? null
+  // Bacaan MQTT lebih baru daripada REST; refetch DB tidak menimpanya.
+  const latest = liveTelemetry ?? data?.latest ?? null
   const offline = data ? !data.online : true
   // Status MQTT lebih segar daripada REST; refetch DB tidak boleh menimpanya.
   const pumpStatus: PumpCommand = livePump?.status ?? data?.pump_status ?? 'OFF'
