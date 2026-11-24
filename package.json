@@ -1,5 +1,5 @@
 {
-  "name": "sproutflow",
+  "name": "sproutflow-control",
   "private": true,
   "type": "module",
   "imports": {
