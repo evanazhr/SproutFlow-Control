@@ -5,6 +5,7 @@ import { Droplets, Thermometer, Wind, Sprout, Power, Settings2, LogOut } from 'l
 import { z } from 'zod'
 import { useForm } from '@tanstack/react-form'
 import ConnectionBadge from '../components/ConnectionBadge'
+import ThemeToggle from '../components/ThemeToggle'
 import { useAuth } from '../hooks/useAuth'
 import { useDevice } from '../hooks/useDevice'
 import { clearLiveTelemetry, useLiveTelemetry } from '../lib/liveTelemetry'
@@ -115,6 +116,7 @@ function ControlPage() {
           </div>
         </div>
         <div className="topbar-actions">
+          <ThemeToggle />
           <span className={`status-pill ${offline ? 'is-offline' : 'is-online'}`}>
             <span className="status-pill-dot" aria-hidden="true" />
             {offline ? 'Offline' : 'Online'}
