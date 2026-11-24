@@ -9,9 +9,11 @@ import { useAuth } from '../hooks/useAuth'
 import { useDevice } from '../hooks/useDevice'
 import { useMqttTelemetry } from '../hooks/useMqttTelemetry'
 import { usePumpControl } from '../hooks/usePumpControl'
-import { ApiError, api, type PumpCommand, type PumpMode } from '../lib/api'
+import { ApiError, api } from '../lib/api'
+import type { PumpCommand, PumpMode } from '../lib/api'
 import { authClient, getSessionSafe } from '../lib/auth-client'
 import { disconnectMqtt } from '../lib/mqtt'
+import { clearPumpLiveState, usePumpLive } from '../lib/pumpLive'
 import { toast } from '../lib/toast'
 import { env } from '../env'
 
@@ -42,6 +44,7 @@ function ControlPage() {
   const { user } = useAuth()
   const device = useDevice(deviceId)
   const { status, lastUpdated } = useMqttTelemetry(deviceId)
+  const livePump = usePumpLive(deviceId)
   const { pendingCommand, send } = usePumpControl(deviceId)
   const queryClient = useQueryClient()
   const [signingOut, setSigningOut] = useState(false)
@@ -82,6 +85,7 @@ function ControlPage() {
     try { await authClient.signOut() }
     finally {
       disconnectMqtt()
+      clearPumpLiveState(deviceId)
       queryClient.clear()
       window.location.href = '/login'
     }
@@ -90,6 +94,8 @@ function ControlPage() {
   const data = device.data
   const latest = data?.latest ?? null
   const offline = data ? !data.online : true
+  // Status MQTT lebih segar daripada REST; refetch DB tidak boleh menimpanya.
+  const pumpStatus: PumpCommand = livePump?.status ?? data?.pump_status ?? 'OFF'
   const pumpMode = settings.data?.pump_mode ?? 'auto'
   const threshold = settings.data?.moisture_threshold ?? 35
   const deviceError = device.isError ? (device.error instanceof Error ? device.error.message : 'Terjadi kesalahan.') : null
@@ -128,7 +134,7 @@ function ControlPage() {
                 <div>
                   <p className="section-kicker">Kontrol pompa</p>
                   <h1 id="pump-title" className="pump-state">
-                    {pendingCommand ? `Mengirim ${pendingCommand}` : data?.pump_status === 'ON' ? 'Pompa menyala' : 'Pompa mati'}
+                    {pendingCommand ? `Mengirim ${pendingCommand}` : pumpStatus === 'ON' ? 'Pompa menyala' : 'Pompa mati'}
                   </h1>
                   <p className="pump-meta">
                     {pendingCommand
@@ -138,13 +144,13 @@ function ControlPage() {
                         : 'Mode manual · kamu yang menentukan.'}
                   </p>
                 </div>
-                <div className={`pump-orb ${data?.pump_status === 'ON' || pendingCommand === 'ON' ? 'is-on' : ''}`} aria-hidden="true">
+                <div className={`pump-orb ${pumpStatus === 'ON' || pendingCommand === 'ON' ? 'is-on' : ''}`} aria-hidden="true">
                   <Power size={28} strokeWidth={2.4} />
                 </div>
               </div>
 
               <PumpAction
-                pumpStatus={data?.pump_status ?? 'OFF'}
+                pumpStatus={pumpStatus}
                 pumpMode={pumpMode}
                 pendingCommand={pendingCommand}
                 onSend={send}

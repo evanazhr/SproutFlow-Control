@@ -1,26 +1,43 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useState } from 'react'
-import { ApiError, api, type PumpCommand } from '../lib/api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ApiError, api } from '../lib/api'
+import type { PumpCommand } from '../lib/api'
+import { getPumpLiveState, usePumpLive } from '../lib/pumpLive'
 import { toast } from '../lib/toast'
-import { useDevice } from './useDevice'
+
+interface PendingCommand {
+  command: PumpCommand
+  /** Diisi dari respons POST /pump; dipakai untuk mencocokkan pump/status. */
+  requestId: string | null
+  /** Versi status live sebelum perintah dikirim, agar ack lama tidak diterima. */
+  sinceVersion: number
+}
+
+const ACK_TIMEOUT_MS = 10_000
 
 /**
  * Kirim perintah pompa dan tunggu konfirmasi lewat `pump_status` (MQTT).
- * Tanpa konfirmasi dalam 10 detik → toast error.
+ * Konfirmasi hanya diterima bila request_id cocok dengan perintah yang
+ * dikirim. Tanpa konfirmasi dalam 10 detik → toast error.
  */
 export function usePumpControl(deviceId: string) {
   const queryClient = useQueryClient()
-  const device = useDevice(deviceId)
-  const pumpStatus = device.data?.pump_status
-  const [pendingCommand, setPendingCommand] = useState<PumpCommand | null>(null)
+  const live = usePumpLive(deviceId)
+  const [pending, setPending] = useState<PendingCommand | null>(null)
+
+  // Watchdog membaca state terbaru tanpa perlu di-reset saat request_id masuk.
+  const pendingRef = useRef(pending)
+  pendingRef.current = pending
 
   const mutation = useMutation({
     mutationFn: (command: PumpCommand) => api.pump(deviceId, command),
-    onSuccess: () => {
+    onSuccess: (res) => {
+      const requestId = res.data.request_id
+      setPending((current) => (current ? { ...current, requestId } : current))
       queryClient.invalidateQueries({ queryKey: ['pump-logs', deviceId] })
     },
     onError: (error) => {
-      setPendingCommand(null)
+      setPending(null)
       if (error instanceof ApiError) {
         if (error.code === 'FORBIDDEN') {
           toast.error('Anda tidak memiliki izin', 'Kontrol pompa hanya untuk admin.')
@@ -37,40 +54,48 @@ export function usePumpControl(deviceId: string) {
 
   const send = useCallback(
     (command: PumpCommand) => {
-      if (pendingCommand) return
-      setPendingCommand(command)
+      if (pending) return
+      setPending({
+        command,
+        requestId: null,
+        sinceVersion: getPumpLiveState(deviceId)?.version ?? 0,
+      })
       mutation.mutate(command)
     },
-    [pendingCommand, mutation],
+    [pending, deviceId, mutation],
   )
 
-  // Konfirmasi diterima: pump_status berubah sesuai perintah
+  // Konfirmasi diterima: pump/status untuk request_id ini, setelah perintah dikirim.
   useEffect(() => {
-    if (pendingCommand && pumpStatus === pendingCommand) {
-      setPendingCommand(null)
-      toast.success(
-        pendingCommand === 'ON' ? 'Pompa menyala' : 'Pompa dimatikan',
-        'Perangkat mengonfirmasi status pompa.',
-      )
-    }
-  }, [pendingCommand, pumpStatus])
+    if (!pending?.requestId || !live) return
+    if (live.version <= pending.sinceVersion) return
+    if (live.status !== pending.command) return
+    if (live.requestId && live.requestId !== pending.requestId) return
+
+    setPending(null)
+    // DB backend bisa tertinggal bila koneksi MQTT-nya putus saat konfirmasi.
+    void queryClient.invalidateQueries({ queryKey: ['device', deviceId] })
+    toast.success(
+      pending.command === 'ON' ? 'Pompa menyala' : 'Pompa dimatikan',
+      'Perangkat mengonfirmasi status pompa.',
+    )
+  }, [pending, live, deviceId, queryClient])
 
   // Watchdog 10 detik di sisi UI
   useEffect(() => {
-    if (!pendingCommand) return
+    if (!pending?.command) return
     const timer = window.setTimeout(() => {
-      setPendingCommand((current) => {
-        if (current) {
-          toast.error(
-            'Perangkat tidak merespons',
-            `Perintah ${current} tidak dikonfirmasi dalam 10 detik.`,
-          )
-        }
-        return null
-      })
-    }, 10_000)
+      const current = pendingRef.current
+      if (!current) return
+      toast.error(
+        'Perangkat tidak merespons',
+        `Perintah ${current.command} tidak dikonfirmasi dalam 10 detik.`,
+      )
+      void queryClient.invalidateQueries({ queryKey: ['device', deviceId] })
+      setPending(null)
+    }, ACK_TIMEOUT_MS)
     return () => window.clearTimeout(timer)
-  }, [pendingCommand])
+  }, [pending?.command, deviceId, queryClient])
 
-  return { pendingCommand, send, isSending: mutation.isPending }
+  return { pendingCommand: pending?.command ?? null, send, isSending: mutation.isPending }
 }

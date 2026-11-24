@@ -1,4 +1,5 @@
-import mqtt, { type MqttClient } from 'mqtt'
+import mqtt from 'mqtt'
+import type { MqttClient } from 'mqtt'
 import { env } from '../env'
 import { deviceStatusSchema, pumpStatusSchema, telemetrySchema } from '../schemas/mqtt'
 
@@ -11,7 +12,11 @@ export type MqttMessage =
       humidity: number
       ts: number
     })
-  | ({ type: 'pump_status' } & { pump_status: 'ON' | 'OFF'; ts: number })
+  | ({ type: 'pump_status' } & {
+      pump_status: 'ON' | 'OFF'
+      ts: number
+      request_id?: string
+    })
   | ({ type: 'status' } & { online: boolean })
 
 type OnStatus = (status: MqttStatus) => void
@@ -57,6 +62,7 @@ function handleMessage(topic: string, payload: Uint8Array) {
         type: 'pump_status',
         pump_status: parsed.data.pump_status,
         ts: parsed.data.ts,
+        request_id: parsed.data.request_id,
       })
     } else {
       console.warn(`[mqtt] pump/status tidak valid: ${topic}`)

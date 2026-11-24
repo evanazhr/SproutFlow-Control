@@ -1,4 +1,5 @@
-import { authClient, type SessionUser } from '../lib/auth-client'
+import { authClient } from '../lib/auth-client'
+import type { SessionUser } from '../lib/auth-client'
 
 export function useAuth() {
   const { data, isPending } = authClient.useSession()

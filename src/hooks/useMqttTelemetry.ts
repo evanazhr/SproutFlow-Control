@@ -1,7 +1,9 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import type { DeviceDetail, Envelope } from '../lib/api'
-import { connectMqtt, type MqttStatus } from '../lib/mqtt'
+import { connectMqtt } from '../lib/mqtt'
+import type { MqttStatus } from '../lib/mqtt'
+import { publishPumpStatus } from '../lib/pumpLive'
 
 /**
  * Satu koneksi MQTT singleton per aplikasi; pesan ditulis ke cache
@@ -47,6 +49,15 @@ export function useMqttTelemetry(deviceId: string) {
             break
           }
           case 'pump_status':
+            // Simpan dulu di store live: pesan retained bisa tiba sebelum query
+            // device selesai fetch, dan refetch REST berikutnya boleh saja
+            // membawa status lama dari DB tanpa mengubah tampilan.
+            publishPumpStatus(
+              deviceId,
+              message.pump_status,
+              message.ts,
+              message.request_id,
+            )
             queryClient.setQueryData<Envelope<DeviceDetail>>(
               ['device', deviceId],
               (prev) =>
@@ -55,7 +66,15 @@ export function useMqttTelemetry(deviceId: string) {
                       ...prev,
                       data: { ...prev.data, online: true, pump_status: message.pump_status },
                     }
-                  : prev,
+                  : {
+                      data: {
+                        id: deviceId,
+                        name: deviceId,
+                        online: true,
+                        pump_status: message.pump_status,
+                        latest: null,
+                      },
+                    },
             )
             setLastUpdated(new Date())
             break
